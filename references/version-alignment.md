@@ -22,7 +22,8 @@ Beats similarly ship with the Stack: 8.12 Filebeat talks to 8.12 ES templates/IL
    - EPR: `https://epr.elastic.co/search?package=<name>` or package listing.  
 3. Choose **max package version V** where `conditions.kibana.version` **matches** the user’s Kibana.  
 4. Fetch package tree at that version tag (`v<package>` if tagged, else commit from changelog).  
-5. Beats download: `https://www.elastic.co/downloads/beats/...` for **same ES major.minor** (patch: prefer equal or nearest lower Beat patch).
+5. Beats download: `https://www.elastic.co/downloads/beats/...` for **same ES major.minor** (patch: prefer equal or nearest lower Beat patch).  
+6. **Adapt** remaining incompatibilities (`references/stack-adapt.md`). Example: 8.12 must not compose `ecs@mappings` on integration templates (Fleet did that from 8.13); keep ECS in `@package`.
 
 ## Stack-family defaults
 

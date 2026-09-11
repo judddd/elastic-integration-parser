@@ -49,7 +49,7 @@ Details: `references/network-proxy.md`.
 
 Pick the **newest integration package whose Kibana constraint includes the user’s Stack**. Latest on `main` often requires 8.19/9.2+ and **will not** install on 8.12.
 
-Details: `references/version-alignment.md`.
+Details: `references/version-alignment.md` and `references/stack-adapt.md`. After picking the package, **automatically adapt** remaining incompatibilities (index settings, mappings, ingest processors, dashboard saved objects, Beat keys) so the kit applies on that exact Stack. Log every rewrite in `VERSION-MATRIX.md`.
 
 Beats binary version: **same major.minor as Elasticsearch** (8.12 Beats ↔ 8.12 ES). Mixing 7 Beats with 8 ES or 9 Beats with 8 ES is unsupported.
 
@@ -86,6 +86,8 @@ After the proxy (or a local package path) is available, from EPR or GitHub `pack
 
 Checkout/source that **tag or commit**, not `main`, unless it matches.
 
+Then read `references/stack-adapt.md` and adapt emitted assets to the **exact** Stack (8.12.1 ≠ 8.19). Typical 8.12 rewrites: no `ecs@mappings` on integration templates; keep package `fields/ecs.yml`; add `logs-*`/`metrics-*` data views if dashboards reference them; omit Beat keys that 8.12 Metricbeat/Filebeat reject.
+
 ### 2) Map each stream to a Beat
 
 Read `data_stream/*/manifest.yml` `streams[].input` and Agent policy `type:`.
@@ -115,14 +117,16 @@ For each stream:
 
 The EPR/source zip **does not** contain ready-made index templates. Fleet generates them from `fields/*.yml` + ingest pipelines at install. Recreate that output so the user can apply assets **without Kibana Fleet**:
 
-Run `scripts/emit_es_assets.py <package-dir> <out>/elasticsearch --stack 7|8|9`.
+Run `scripts/emit_es_assets.py <package-dir> <out>/elasticsearch --stack-version 8.12.1`.
+
+Then apply `references/stack-adapt.md`: rewrite settings / mappings / pipelines / dashboards / Beat YAML that the **exact** target cannot apply. Do not ship a kit that 400s on PUT or fails Kibana import.
 
 It must emit, in apply order:
 
 1. `elasticsearch/00_ingest_pipeline/{type}-{dataset}-{pkgVersion}.json` — from `data_stream/*/elasticsearch/ingest_pipeline/` (Fleet name)  
 2. `elasticsearch/01_component_template/{type}-{dataset}@package.json` — mappings from all `fields/*.yml` (`dimension` → `time_series_dimension`, `metric_type` → `time_series_metric`), `index.default_pipeline`, and `index.mode: time_series` when the stream manifest says so  
 3. `elasticsearch/01_component_template/{type}-{dataset}@custom.json` — empty overlay, install with `?create=true`  
-4. `elasticsearch/02_index_template/{type}-{dataset}.json` — `index_patterns: {type}-{dataset}-*`, `data_stream: {}`, `composed_of: [ecs@mappings (8.14+/9), @package, @custom]`, priority 200  
+4. `elasticsearch/02_index_template/{type}-{dataset}.json` — `index_patterns: {type}-{dataset}-*`, `data_stream: {}`, `composed_of: [ecs@mappings only if target ≥ 8.13, @package, @custom]`, priority 200  
 5. `elasticsearch/install_assets.py` — PUT the above against `ES_URL` **before** starting Beats. HTTPS must skip certificate verification (`ssl._create_unverified_context()`), matching Beat `ssl.verification_mode: none`. Do not add an `ES_SSL_VERIFY=1` path.  
 
 Also copy `kibana/` and sample events. Do **not** rewrite dashboard JSON. Do **not** tell the user “just install via Fleet” and skip these files.
@@ -152,7 +156,8 @@ See `references/output-layout.md`. Always classify by Beat; omit empty Beat dirs
 
 ## Anti-patterns
 
-- Using `main` / latest integration for an older Stack.  
+- Using `main` / latest integration for an older Stack, or emitting 8.13+ `ecs@mappings` compose / new vis types onto 8.12.  
+- Shipping templates/dashboards that the target Stack cannot PUT/import instead of adapting them.  
 - Exporting Beats-module dashboards and calling them “integration dashboards”.  
 - Letting Filebeat `setup` install `filebeat-*` templates while dashboards query `logs-pkg.dataset-*`.  
 - Merging all inputs into one `filebeat.yml` when `sql/metrics` belongs in Metricbeat.  
@@ -167,7 +172,7 @@ See `references/output-layout.md`. Always classify by Beat; omit empty Beat dirs
 | File | When |
 | --- | --- |
 | `references/network-proxy.md` | Ask for proxy before GitHub / EPR / elastic.co |  
-| `references/version-alignment.md` | Choosing package + Beat versions for 7/8/9 |
+| `references/stack-adapt.md` | 按目标 Stack 自动改 setting / mapping / dashboard |
 | `references/input-to-beat.md` | Input → Beat + YAML translation |
 | `references/dashboards-and-assets.md` | Where dashboards live; how to install assets |
 | `references/output-layout.md` | Folder tree and INSTALL steps |

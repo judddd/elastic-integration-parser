@@ -8,7 +8,7 @@ generates them at install. This script performs that generation so Beats can
 run without Kibana Fleet.
 
 Usage:
-  python3 emit_es_assets.py <package-dir> <output-elasticsearch-dir> --stack 9
+  python3 emit_es_assets.py <package-dir> <output-elasticsearch-dir> --stack-version 8.12.1
 """
 
 from __future__ import annotations
@@ -51,9 +51,31 @@ SKIP_MAPPING_KEYS = {
 }
 
 
+def parse_stack_version(s: str) -> tuple[int, int, int]:
+    parts = str(s).strip().split(".")
+    major = int(parts[0])
+    minor = int(parts[1]) if len(parts) > 1 else 0
+    patch = int("".join(c for c in (parts[2] if len(parts) > 2 else "0") if c.isdigit()) or "0")
+    return major, minor, patch
+
+
+def ver_gte(have: tuple[int, int, int], need: tuple[int, int, int]) -> bool:
+    return have >= need
+
+
+def strip_tsds_mapping(node):
+    if isinstance(node, dict):
+        node.pop("time_series_dimension", None)
+        node.pop("time_series_metric", None)
+        for v in node.values():
+            strip_tsds_mapping(v)
+    elif isinstance(node, list):
+        for v in node:
+            strip_tsds_mapping(v)
+
+
 def load_yaml(path: Path):
-    text = path.read_text(encoding="utf-8")
-    return yaml.safe_load(text)
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def dotted_set(root: dict, dotted: str, leaf: dict) -> None:
@@ -171,10 +193,13 @@ def dump(path: Path, obj) -> None:
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
-def emit(pkg_dir: Path, out_dir: Path, stack_major: int) -> None:
+def emit(pkg_dir: Path, out_dir: Path, stack_version: tuple[int, int, int]) -> None:
     pkg_name, pkg_ver = package_meta(pkg_dir)
     ds_root = pkg_dir / "data_stream"
-    include_ecs = stack_major >= 8
+    # Fleet composes ecs@mappings onto *integration* templates from 8.13.0.
+    # The component exists from 8.9 on logs-*-* only — do not use it on 8.12 integration templates.
+    include_ecs = ver_gte(stack_version, (8, 13, 0))
+    tsds_ok = ver_gte(stack_version, (8, 7, 0))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     streams = []
@@ -183,7 +208,6 @@ def emit(pkg_dir: Path, out_dir: Path, stack_major: int) -> None:
         ds_type = man.get("type") or "logs"
         dataset = f"{pkg_name}.{stream_dir.name}"
         index_mode = (man.get("elasticsearch") or {}).get("index_mode")
-        streams.append((stream_dir, ds_type, dataset, index_mode, man))
 
         pipes = pipeline_docs(stream_dir)
         default_pipe = None
@@ -197,14 +221,16 @@ def emit(pkg_dir: Path, out_dir: Path, stack_major: int) -> None:
             dump(out_dir / "00_ingest_pipeline" / f"{es_name}.json", body)
 
         mapping = stream_mapping(stream_dir, ds_type, dataset)
+        if not tsds_ok:
+            strip_tsds_mapping(mapping)
         settings: dict = {
             "index.default_pipeline": default_pipe or f"{ds_type}-{dataset}-{pkg_ver}",
-            "index.lifecycle.name": "",  # unset ILM; 9.x uses data stream lifecycle unless user sets it
         }
-        # Empty ILM name can be invalid. Omit instead.
-        settings.pop("index.lifecycle.name", None)
-        if index_mode == "time_series":
+        if index_mode == "time_series" and tsds_ok:
             settings["index.mode"] = "time_series"
+        elif index_mode == "time_series" and not tsds_ok:
+            index_mode = None
+        streams.append((stream_dir, ds_type, dataset, index_mode, man))
 
         package_component = {
             "template": {
@@ -256,14 +282,16 @@ def emit(pkg_dir: Path, out_dir: Path, stack_major: int) -> None:
     manifest = {
         "package": pkg_name,
         "version": pkg_ver,
-        "stack_major": stack_major,
+        "stack_version": ".".join(str(x) for x in stack_version),
+        "compose_ecs_mappings": include_ecs,
+        "tsds_enabled": tsds_ok,
         "order": [
             "PUT _ingest/pipeline/{name}  from 00_ingest_pipeline/",
             "PUT _component_template/{name}  from 01_component_template/ (@package then @custom)",
             "PUT _index_template/{name}  from 02_index_template/",
         ],
         "notes": [
-            "ecs@mappings is composed on Stack 8.14+/9.x (built-in). 7.x templates omit it.",
+            "ecs@mappings is composed only on Stack >= 8.13 (Fleet integration templates). 8.12 keeps ECS fields inside @package.",
             "Do this before starting Beats. Beats must not run setup.template.",
             "TSDS streams set index.mode=time_series on the @package component template.",
         ],
@@ -349,9 +377,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("package_dir")
     ap.add_argument("output_dir")
-    ap.add_argument("--stack", type=int, default=9)
+    ap.add_argument("--stack-version", default=None, help="e.g. 8.12.1")
+    ap.add_argument("--stack", type=int, default=None, help="major only; prefer --stack-version")
     args = ap.parse_args()
-    emit(Path(args.package_dir).resolve(), Path(args.output_dir).resolve(), args.stack)
+    if args.stack_version:
+        ver = parse_stack_version(args.stack_version)
+    elif args.stack is not None:
+        ver = (args.stack, 0, 0)
+    else:
+        ver = (9, 0, 0)
+    emit(Path(args.package_dir).resolve(), Path(args.output_dir).resolve(), ver)
     print("wrote", args.output_dir)
 
 

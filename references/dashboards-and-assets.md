@@ -65,3 +65,5 @@ Do not replace dataset filters with `filebeat-*` “to make Beats work”. That 
 ## Exporting extra Kibana objects
 
 Dashboards reference searches/visualizations by id. Copy the whole `packages/<pkg>/kibana/` tree for that version, not only `dashboard/`.
+
+If panels reference `logs-*` / `metrics-*` index-pattern (data view) ids, and the target has no Fleet, **emit those saved objects** into `kibana/index-pattern/` and put them **first** in `import.ndjson`. See `references/stack-adapt.md`.
