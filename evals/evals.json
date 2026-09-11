@@ -1,0 +1,23 @@
+{
+  "skill_name": "elastic-integration-parser",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Stack 指定 Elasticsearch/Kibana 8.12。把官方 microsoft_sqlserver integration 解析成可以自己装 Beat 的文件夹，输出到 /tmp/mssql-beats-8.12/。按 beat 分类；dashboard 要能对上 integration 的看板；不要用对 8.12 装不上的最新包。",
+      "expected_output": "VERSION-MATRIX picks a microsoft_sqlserver package whose kibana constraint includes 8.12 (not latest 8.19+). Folders winlogbeat (audit 33205), filebeat (error logs), metricbeat (sql queries). kibana/ copied from that package version. INSTALL.md disables Beat templates and routes to logs-/metrics- data streams. Dashboards come from integration kibana/, not metricbeat mssql _meta.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我只要 system integration 的 Windows Security 通道，目标 ES 9.5。解析成 winlogbeat 配置+integration dashboard，输出 /tmp/system-security-beats-9.5/。说明 dashboard 是 integration 的还是 beat 自带的。",
+      "expected_output": "Winlogbeat-only kit for Security channel, package version compatible with 9.5, dashboards from packages/system/kibana, data stream logs-system.security-*. Explicit note that Beat winlogbeat setup dashboards are not used.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "ES 7.17，解析 nginx integration 成 filebeat。如果 7.17 装不了该包，要写清楚而不能硬上最新包。输出 /tmp/nginx-beats-7.17/。",
+      "expected_output": "Either a 7.17-compatible package version with Filebeat 7.17 config, or a clear stop with constraint evidence. No 8.19-only package assets presented as 7.17-ready.",
+      "files": []
+    }
+  ]
+}
