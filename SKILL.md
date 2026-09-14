@@ -128,6 +128,7 @@ It must emit, in apply order:
 3. `elasticsearch/01_component_template/{type}-{dataset}@custom.json` — empty overlay, install with `?create=true`  
 4. `elasticsearch/02_index_template/{type}-{dataset}.json` — `index_patterns: {type}-{dataset}-*`, `data_stream: {}`, `composed_of: [ecs@mappings only if target ≥ 8.13, @package, @custom]`, priority 200  
 5. `elasticsearch/install_assets.py` — PUT the above against `ES_URL` **before** starting Beats. HTTPS must skip certificate verification (`ssl._create_unverified_context()`), matching Beat `ssl.verification_mode: none`. Do not add an `ES_SSL_VERIFY=1` path.  
+   After all PUTs succeed, the script **must print a Chinese summary** of what was installed: package/version, target `ES_URL`, each ingest pipeline name, each `@package` / `@custom` component template (note skipped `@custom`), each index template, and the data-stream patterns from `manifest.json`, plus short next steps (import kibana, start Beats). Do not end with only `Done.`
 
 Also copy `kibana/` and sample events. Do **not** rewrite dashboard JSON. Do **not** tell the user “just install via Fleet” and skip these files.
 
@@ -138,7 +139,7 @@ Also copy `kibana/` and sample events. Do **not** rewrite dashboard JSON. Do **n
 `INSTALL.md` 必须按这个顺序写：
 
 1. 安装与 ES 同小版本的 Beats **N.M.x**  
-2. **先执行** `elasticsearch/install_assets.py`（pipeline → component template → index template；脚本 HTTPS 不校验证书，与 Beat 的 `ssl.verification_mode: none` 一致）。也可改用 Fleet 上传原包，效果应等价。  
+2. **先执行** `elasticsearch/install_assets.py`（pipeline → component template → index template；脚本 HTTPS 不校验证书，与 Beat 的 `ssl.verification_mode: none` 一致）。跑完后脚本会**用中文打印安装说明**（装了哪些 pipeline / 模板 / 数据流）。也可改用 Fleet 上传原包，效果应等价。  
 3. 导入 `kibana/` 看板（Fleet 已装则可跳过）  
 4. 放下生成的 `*-beat.yml`（其中 `ssl.verification_mode: none`），`test config`，启动  
 5. Discover 查询：`data_stream.dataset: "<package>.<stream>"`  
@@ -158,6 +159,7 @@ See `references/output-layout.md`. Always classify by Beat; omit empty Beat dirs
 
 - Using `main` / latest integration for an older Stack, or emitting 8.13+ `ecs@mappings` compose / new vis types onto 8.12.  
 - Shipping templates/dashboards that the target Stack cannot PUT/import instead of adapting them.  
+- `install_assets.py` 成功后不打印中文安装清单（只打 `Done.`）。  
 - Exporting Beats-module dashboards and calling them “integration dashboards”.  
 - Letting Filebeat `setup` install `filebeat-*` templates while dashboards query `logs-pkg.dataset-*`.  
 - Merging all inputs into one `filebeat.yml` when `sql/metrics` belongs in Metricbeat.  

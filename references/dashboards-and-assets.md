@@ -28,7 +28,7 @@ Standalone Beats **do not** upload those when you only drop a `filebeat.yml`. If
 
 ## Required install path (perfect match)
 
-1. **Apply ES assets first**: `python3 elasticsearch/install_assets.py` (or Fleet-install the same package version — same names).  
+1. **Apply ES assets first**: `python3 elasticsearch/install_assets.py` (or Fleet-install the same package version — same names). When the script finishes, it must print a **Chinese summary** listing every pipeline, component template, index template, and data-stream pattern it installed (read from `manifest.json`), not just `Done.`  
 2. **Import** `kibana/` if dashboards are not already loaded.  
 3. **Beats** only ship data:
    - `setup.template.enabled: false`  

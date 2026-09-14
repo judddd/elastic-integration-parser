@@ -312,6 +312,8 @@ def emit(pkg_dir: Path, out_dir: Path, stack_version: tuple[int, int, int]) -> N
 
   export ES_URL=https://127.0.0.1:9200 ES_USER=elastic ES_PASSWORD=...
   python3 elasticsearch/install_assets.py
+
+完成后用中文打印安装说明（装了哪些 pipeline / 模板 / 数据流）。
 """
 from __future__ import annotations
 import json, os, ssl, sys, urllib.error, urllib.parse, urllib.request
@@ -324,7 +326,16 @@ password = os.environ.get("ES_PASSWORD", "")
 # Match Beat output.elasticsearch.ssl.verification_mode: none
 ctx = ssl._create_unverified_context()
 
-def put(path: str, body: dict, create_only: bool = False) -> None:
+installed = {
+    "pipelines": [],
+    "component_package": [],
+    "component_custom": [],
+    "component_custom_skipped": [],
+    "index_templates": [],
+}
+
+def put(path: str, body: dict, create_only: bool = False) -> str:
+    """Returns 'ok' or 'skipped'."""
     q = "?create=true" if create_only else ""
     url = base + path + q
     data = json.dumps(body).encode()
@@ -337,11 +348,12 @@ def put(path: str, body: dict, create_only: bool = False) -> None:
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=60) as resp:
             print(resp.status, path, resp.read()[:200].decode())
+            return "ok"
     except urllib.error.HTTPError as e:
         err = e.read().decode()
         if create_only and e.code == 400 and "already_exists" in err:
             print("skip existing", path)
-            return
+            return "skipped"
         print("FAIL", path, e.code, err[:800])
         sys.exit(1)
 
@@ -351,23 +363,77 @@ def load_json(p: Path):
 def enc(name: str) -> str:
     return urllib.parse.quote(name, safe="")
 
+def print_summary() -> None:
+    man = {}
+    mp = root / "manifest.json"
+    if mp.is_file():
+        man = load_json(mp)
+    pkg = man.get("package") or "?"
+    ver = man.get("version") or "?"
+    stack = man.get("stack_version") or "?"
+    print()
+    print("=" * 60)
+    print("安装完成 — Elasticsearch 资产说明")
+    print("=" * 60)
+    print(f"目标集群: {base}")
+    print(f"集成包:   {pkg} {ver}")
+    print(f"适配 Stack: {stack}")
+    print()
+    print(f"1) Ingest pipeline（{len(installed['pipelines'])}）")
+    for n in installed["pipelines"]:
+        print(f"   - {n}")
+    print()
+    print(f"2) Component template @package（{len(installed['component_package'])}）")
+    for n in installed["component_package"]:
+        print(f"   - {n}  （mapping / default_pipeline / TSDS 如适用）")
+    print()
+    print(f"3) Component template @custom（新建 {len(installed['component_custom'])}，已存在跳过 {len(installed['component_custom_skipped'])}）")
+    for n in installed["component_custom"]:
+        print(f"   - {n}  （空壳，供本地覆盖）")
+    for n in installed["component_custom_skipped"]:
+        print(f"   - {n}  （已存在，未覆盖）")
+    print()
+    print(f"4) Index template（{len(installed['index_templates'])}）")
+    for n in installed["index_templates"]:
+        print(f"   - {n}")
+    print()
+    streams = man.get("data_streams") or []
+    if streams:
+        print("5) 对应数据流（Beat 应写入这些 pattern）")
+        for s in streams:
+            mode = s.get("index_mode") or "standard"
+            print(f"   - {s.get('pattern')}  dataset={s.get('dataset')}  mode={mode}")
+        print()
+    print("下一步:")
+    print("  1. 如未用 Fleet：导入 ../kibana/import.ndjson（看板）")
+    print("  2. 放下 Beat 配置并启动（setup.template.enabled: false）")
+    print("  3. Discover 用 data_stream.dataset 核对")
+    print("=" * 60)
+
 print("Installing pipelines")
 for p in sorted((root / "00_ingest_pipeline").glob("*.json")):
     put(f"/_ingest/pipeline/{enc(p.stem)}", load_json(p))
+    installed["pipelines"].append(p.stem)
 
 print("Installing @package component templates")
 for p in sorted((root / "01_component_template").glob("*@package.json")):
     put(f"/_component_template/{enc(p.stem)}", load_json(p))
+    installed["component_package"].append(p.stem)
 
 print("Installing @custom component templates (create-only)")
 for p in sorted((root / "01_component_template").glob("*@custom.json")):
-    put(f"/_component_template/{enc(p.stem)}", load_json(p), create_only=True)
+    status = put(f"/_component_template/{enc(p.stem)}", load_json(p), create_only=True)
+    if status == "skipped":
+        installed["component_custom_skipped"].append(p.stem)
+    else:
+        installed["component_custom"].append(p.stem)
 
 print("Installing index templates")
 for p in sorted((root / "02_index_template").glob("*.json")):
     put(f"/_index_template/{enc(p.stem)}", load_json(p))
+    installed["index_templates"].append(p.stem)
 
-print("Done. Start Beats only after this succeeds.")
+print_summary()
 '''
     (out_dir / "install_assets.py").write_text(installer, encoding="utf-8")
     (out_dir / "install_assets.py").chmod(0o755)

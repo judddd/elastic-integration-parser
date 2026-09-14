@@ -8,7 +8,7 @@
 │   ├── 00_ingest_pipeline/       # Fleet 命名：{type}-{dataset}-{pkgVersion}.json
 │   ├── 01_component_template/    # @package（mapping+TSDS）和 @custom
 │   ├── 02_index_template/        # {type}-{dataset}-*
-│   ├── install_assets.py         # 写入数据前执行
+│   ├── install_assets.py         # 写入数据前执行；完成后中文打印已安装资产清单
 │   └── manifest.json
 ├── kibana/                       # full packages/<pkg>/kibana @ chosen version
 │   ├── dashboard/
@@ -30,7 +30,7 @@
 
 1. 版本说明（对照 VERSION-MATRIX）  
 2. 安装与 ES 同小版本的 Beats  
-3. **先跑** `python3 elasticsearch/install_assets.py`（pipeline / 模板，HTTPS 不校验证书），再启动 Beat  
+3. **先跑** `python3 elasticsearch/install_assets.py`（pipeline / 模板，HTTPS 不校验证书；完成后打印中文安装清单），再启动 Beat  
 4. 导入 `kibana/` 看板  
 5. 放下 yml（`ssl.verification_mode: none`），`test config`，启动服务  
 6. Discover 核对 + 列出拷出来的看板标题  
