@@ -86,7 +86,7 @@ After the proxy (or a local package path) is available, from EPR or GitHub `pack
 
 Checkout/source that **tag or commit**, not `main`, unless it matches.
 
-Then read `references/stack-adapt.md` and adapt emitted assets to the **exact** Stack (8.12.1 ≠ 8.19). Typical 8.12 rewrites: no `ecs@mappings` on integration templates; keep package `fields/ecs.yml`; add `logs-*`/`metrics-*` data views if dashboards reference them; omit Beat keys that 8.12 Metricbeat/Filebeat reject.
+Then read `references/stack-adapt.md` and adapt emitted assets to the **exact** Stack (8.12.1 ≠ 8.19). Typical 8.12 rewrites: no `ecs@mappings` on integration templates; keep package `fields/ecs.yml`; add `logs-*`/`metrics-*` data views if dashboards reference them; omit Beat keys that 8.12 Metricbeat/Filebeat reject; run `scripts/adapt_kibana_dashboards.py` so Lens terms `otherBucket` does not break panels (`field can not be used for filtering`).
 
 ### 2) Map each stream to a Beat
 
@@ -196,3 +196,4 @@ Do not treat a one-off file edit as done. The skill must learn from every produc
 | `references/dashboards-and-assets.md` | Where dashboards live; how to install assets |
 | `references/output-layout.md` | Folder tree and INSTALL steps |
 | `scripts/emit_es_assets.py` | 从官方包生成可 PUT 的 pipeline / 模板 |
+| `scripts/adapt_kibana_dashboards.py` | 8.12 Lens：关掉 terms `otherBucket` / 配对 `includeEmptyRows` |

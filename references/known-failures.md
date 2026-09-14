@@ -10,6 +10,7 @@ The EPR zip ships **pipelines + `fields/*.yml` + kibana JSON**. It does **not** 
 | --- | --- | --- |
 | `PUT _component_template/...@package` 400: `[index.mode=time_series] requires a non-empty [index.routing_path]` | TSDS `index.mode` on the **component** template without `index.routing_path`. ES validates each component alone. | `emit_es_assets.py`: set `index.routing_path` to every `time_series_dimension` path in the same `@package`. |
 | `PUT _component_template/...@package` 400: `Field [ignore_above] cannot be set in conjunction with field [time_series_dimension]` | Generator (or field merge from `agent.yml` then `ecs.yml`) put `ignore_above: 1024` on keyword dimensions. ES forbids that combo. | Never set `ignore_above` on dimension fields; `merge_field_leaf` + `sanitize_tsds_mapping` strip it if a later/earlier file conflicts. |
+| Kibana Lens panel: `[layeredXyVis] > [esaggs] > The "<field>" field can not be used for filtering.` (table/search still works) | Lens XY **terms** split with `otherBucket: true` (and often `includeEmptyRows: true`) asks Kibana to build phrase filters for the Other bucket; on 8.12 that check fails for some keyword fields even when ES terms agg works. | `scripts/adapt_kibana_dashboards.py`: for Stack &lt; 8.13 set `otherBucket: false` and `includeEmptyRows: false` on those layers; rewrite `dashboard/*.json` + `import.ndjson`. Re-import or PUT the dashboard. |
 
 ## When you fix a new error
 

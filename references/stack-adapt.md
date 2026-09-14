@@ -46,7 +46,8 @@ Copy from the **chosen package version** first (already built for that Kibana ra
 - Do **not** rewrite dataset filters to `filebeat-*`.  
 - Keep `data_stream.dataset` filters.  
 - Data view vs index-pattern: 8.0+ uses data views; 7.x may need `index-pattern`. Convert references if importing on 7.17.  
-- Do not bump `kibanaSavedObjectMeta` / dashboard `version` past the target.
+- Do not bump `kibanaSavedObjectMeta` / dashboard `version` past the target.  
+- **8.12 Lens**: after copy, run `scripts/adapt_kibana_dashboards.py <kit>/kibana --stack-version 8.12.1`. It disables Lens terms `otherBucket` / paired `includeEmptyRows` so panels do not die with `field can not be used for filtering` while Discover/search tables still work.
 
 ## Beat vs package features
 
