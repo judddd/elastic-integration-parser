@@ -18,7 +18,7 @@ Record every rewrite in `VERSION-MATRIX.md` under **适配清单**.
 | **&lt; 8.13** | Do **not** `composed_of: ecs@mappings` on **integration** index templates. Fleet only wired that in at 8.13. The component exists from 8.9 on `logs-*-*`, but composing it on `metrics-<pkg>.*` the 8.13 way is not how 8.12 Fleet behaves. Keep ECS fields from the **package** `fields/*.yml` inside `@package`. |
 | **≥ 8.13 / 9** | Compose `ecs@mappings` as Fleet does. |
 | **&lt; 8.7** | No TSDS: strip `index.mode: time_series`, `time_series_dimension`, `time_series_metric`. |
-| **≥ 8.7** | Keep TSDS if the package stream sets `elasticsearch.index_mode: time_series`. |
+| **≥ 8.7** | Keep TSDS if the package stream sets `elasticsearch.index_mode: time_series`. When `index.mode: time_series` is on the **@package component template**, also set **`index.routing_path`** to every field with `time_series_dimension: true` (same component must carry mode + routing_path + those mappings). Omitting `routing_path` makes `PUT _component_template` return 400: `[index.mode=time_series] requires a non-empty [index.routing_path]`. Dimension keyword fields must **not** have `ignore_above` (ES: cannot set together with `time_series_dimension`). |
 | Any | Drop index settings / mapping params introduced **after** the target (unknown `index.*`, mapping `meta`, synthetic `_source` overrides, data-stream lifecycle blocks that 8.12 rejects). Prefer omitting over hoping ES ignores them. |
 | **8.11–8.12** | `ignore_missing_component_templates` and `allow_auto_create` are fine. Do not emit 8.15+ only mapping types. |
 

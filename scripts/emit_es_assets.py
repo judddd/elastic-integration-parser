@@ -74,6 +74,28 @@ def strip_tsds_mapping(node):
             strip_tsds_mapping(v)
 
 
+def collect_dimension_paths(mapping: dict, prefix: str = "") -> list[str]:
+    """Field paths with time_series_dimension: true — used as index.routing_path for TSDS.
+
+    ES rejects component templates that set index.mode=time_series without a non-empty
+    index.routing_path when mode lives on the component (each component must be valid alone).
+    Fleet derives the same list from dimension fields.
+    """
+    out: list[str] = []
+    props = mapping.get("properties") if isinstance(mapping, dict) else None
+    if not isinstance(props, dict):
+        return out
+    for name, node in props.items():
+        if not isinstance(node, dict):
+            continue
+        path = f"{prefix}.{name}" if prefix else name
+        if node.get("time_series_dimension") is True:
+            out.append(path)
+        if "properties" in node:
+            out.extend(collect_dimension_paths(node, path))
+    return out
+
+
 def load_yaml(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
@@ -96,6 +118,8 @@ def dotted_set(root: dict, dotted: str, leaf: dict) -> None:
         leaf_props = leaf["properties"]
         existing.setdefault("properties", {}).update(leaf_props)
         cur[last] = existing
+    elif existing and "properties" not in existing and "properties" not in leaf:
+        cur[last] = merge_field_leaf(existing, leaf)
     else:
         cur[last] = leaf
 
@@ -106,12 +130,16 @@ def field_leaf(spec: dict) -> dict:
         return {"properties": {}}
 
     mapping: dict = {"type": ftype}
-    if ftype == "keyword" and "ignore_above" not in spec:
-        mapping["ignore_above"] = 1024
-    if "ignore_above" in spec:
-        mapping["ignore_above"] = spec["ignore_above"]
-    if spec.get("dimension") is True:
+    is_dim = spec.get("dimension") is True
+    # ES forbids ignore_above together with time_series_dimension (TSDS).
+    # Never invent ignore_above on dimension fields; Fleet/elastic-package skip it too.
+    if is_dim:
         mapping["time_series_dimension"] = True
+    elif ftype == "keyword":
+        if "ignore_above" in spec:
+            mapping["ignore_above"] = spec["ignore_above"]
+        else:
+            mapping["ignore_above"] = 1024
     if spec.get("metric_type"):
         mapping["time_series_metric"] = spec["metric_type"]
     if ftype == "constant_keyword" and "value" in spec and spec["value"] is not None:
@@ -125,6 +153,30 @@ def field_leaf(spec: dict) -> dict:
     if spec.get("enabled") is False:
         mapping["enabled"] = False
     return mapping
+
+
+def merge_field_leaf(existing: dict, incoming: dict) -> dict:
+    """Merge two leaf field mappings. Dimension wins over ignore_above."""
+    out = dict(existing)
+    out.update(incoming)
+    if out.get("time_series_dimension") is True:
+        out.pop("ignore_above", None)
+    return out
+
+
+def sanitize_tsds_mapping(mapping: dict) -> None:
+    """Strip illegal combos ES rejects on TSDS (safety net after field merges)."""
+    props = mapping.get("properties") if isinstance(mapping, dict) else None
+    if not isinstance(props, dict):
+        return
+    for node in props.values():
+        if not isinstance(node, dict):
+            continue
+        if node.get("time_series_dimension") is True:
+            node.pop("ignore_above", None)
+            node.pop("normalizer", None)
+        if "properties" in node:
+            sanitize_tsds_mapping(node)
 
 
 def ingest_fields(fields_list, properties: dict) -> None:
@@ -223,11 +275,21 @@ def emit(pkg_dir: Path, out_dir: Path, stack_version: tuple[int, int, int]) -> N
         mapping = stream_mapping(stream_dir, ds_type, dataset)
         if not tsds_ok:
             strip_tsds_mapping(mapping)
+        else:
+            sanitize_tsds_mapping(mapping)
         settings: dict = {
             "index.default_pipeline": default_pipe or f"{ds_type}-{dataset}-{pkg_ver}",
         }
         if index_mode == "time_series" and tsds_ok:
             settings["index.mode"] = "time_series"
+            # Required when index.mode is on the component template (ES validates each
+            # component alone). Same dimension list Fleet would derive.
+            dims = collect_dimension_paths(mapping)
+            if not dims:
+                raise SystemExit(
+                    f"{dataset}: index_mode=time_series but no dimension fields in mapping"
+                )
+            settings["index.routing_path"] = dims
         elif index_mode == "time_series" and not tsds_ok:
             index_mode = None
         streams.append((stream_dir, ds_type, dataset, index_mode, man))

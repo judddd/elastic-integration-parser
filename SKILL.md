@@ -115,7 +115,7 @@ For each stream:
 
 ### 4) Extract Elasticsearch assets the user can PUT before Beats start
 
-The EPR/source zip **does not** contain ready-made index templates. Fleet generates them from `fields/*.yml` + ingest pipelines at install. Recreate that output so the user can apply assets **without Kibana Fleet**:
+The EPR/source zip **does not** contain ready-made index templates. It contains `fields/*.yml` + ingest pipelines; **Fleet / elastic-package generates** component and index templates at install. This skill must **re-implement that generation** in `scripts/emit_es_assets.py` (not invent a freestyle mapping). Pipelines and `kibana/` are copied from the package; templates are synthesized and must match ES validation (TSDS `routing_path`, no `ignore_above` on dimensions, Stack-specific `ecs@mappings` compose, etc.). Every PUT 400 from `install_assets.py` is a generator bug — fix the script and `references/known-failures.md`, then regenerate.
 
 Run `scripts/emit_es_assets.py <package-dir> <out>/elasticsearch --stack-version 8.12.1`.
 
@@ -124,7 +124,7 @@ Then apply `references/stack-adapt.md`: rewrite settings / mappings / pipelines 
 It must emit, in apply order:
 
 1. `elasticsearch/00_ingest_pipeline/{type}-{dataset}-{pkgVersion}.json` — from `data_stream/*/elasticsearch/ingest_pipeline/` (Fleet name)  
-2. `elasticsearch/01_component_template/{type}-{dataset}@package.json` — mappings from all `fields/*.yml` (`dimension` → `time_series_dimension`, `metric_type` → `time_series_metric`), `index.default_pipeline`, and `index.mode: time_series` when the stream manifest says so  
+2. `elasticsearch/01_component_template/{type}-{dataset}@package.json` — mappings from all `fields/*.yml` (`dimension` → `time_series_dimension`, `metric_type` → `time_series_metric`), `index.default_pipeline`, and when TSDS: `index.mode: time_series` **plus** `index.routing_path` listing every dimension field path (required or ES returns 400)  
 3. `elasticsearch/01_component_template/{type}-{dataset}@custom.json` — empty overlay, install with `?create=true`  
 4. `elasticsearch/02_index_template/{type}-{dataset}.json` — `index_patterns: {type}-{dataset}-*`, `data_stream: {}`, `composed_of: [ecs@mappings only if target ≥ 8.13, @package, @custom]`, priority 200  
 5. `elasticsearch/install_assets.py` — PUT the above against `ES_URL` **before** starting Beats. HTTPS must skip certificate verification (`ssl._create_unverified_context()`), matching Beat `ssl.verification_mode: none`. Do not add an `ES_SSL_VERIFY=1` path.  
@@ -155,10 +155,26 @@ See `references/output-layout.md`. Always classify by Beat; omit empty Beat dirs
 - **7.x**: Fleet integrations from 7.14+; data-stream routing from Beats is limited. Prefer 7.17 Beats + the last package whose Kibana constraint includes 7.17, or warn that perfect dashboard parity may require 8.x.  
 - **Secrets**: never copy real passwords from pasted policies into git; use env placeholders.
 
+## Error → skill sync (mandatory)
+
+If install, import, or Beat runtime fails because of something this skill generated:
+
+1. Fix the **generator** (`scripts/emit_es_assets.py`, Beat YAML rules, dashboard adapt), not only the one output folder.  
+2. Record the failure in `references/known-failures.md` (error text, cause, where the rule lives).  
+3. Update `references/stack-adapt.md` / this SKILL.md / INSTALL wording so the same mistake cannot ship again.  
+4. Regenerate the user’s kit when they still need it.
+
+Do not treat a one-off file edit as done. The skill must learn from every production error.
+
 ## Anti-patterns
 
+- Fixing a PUT/import error in one kit folder without updating the skill / `emit_es_assets.py` / `known-failures.md`.  
 - Using `main` / latest integration for an older Stack, or emitting 8.13+ `ecs@mappings` compose / new vis types onto 8.12.  
 - Shipping templates/dashboards that the target Stack cannot PUT/import instead of adapting them.  
+- Emitting TSDS `@package` with `index.mode: time_series` but no `index.routing_path`.  
+- Putting `ignore_above` on a `time_series_dimension` field.  
+- Claiming templates were “copied from the package zip” — the zip has no index templates; they are synthesized.  
+- Putting `ignore_above` on keyword fields that also have `time_series_dimension: true`.  
 - `install_assets.py` 成功后不打印中文安装清单（只打 `Done.`）。  
 - Exporting Beats-module dashboards and calling them “integration dashboards”.  
 - Letting Filebeat `setup` install `filebeat-*` templates while dashboards query `logs-pkg.dataset-*`.  
@@ -175,6 +191,7 @@ See `references/output-layout.md`. Always classify by Beat; omit empty Beat dirs
 | --- | --- |
 | `references/network-proxy.md` | Ask for proxy before GitHub / EPR / elastic.co |  
 | `references/stack-adapt.md` | 按目标 Stack 自动改 setting / mapping / dashboard |
+| `references/known-failures.md` | 安装/生成报错 → 必须回写 skill 的案例表 |
 | `references/input-to-beat.md` | Input → Beat + YAML translation |
 | `references/dashboards-and-assets.md` | Where dashboards live; how to install assets |
 | `references/output-layout.md` | Folder tree and INSTALL steps |
